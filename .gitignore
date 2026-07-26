@@ -40,8 +40,11 @@ scanner/
 # Data files
 threatfox.json
 
-# Dev scripts (one-time migration helpers)
-scripts/
+# Dev scripts (one-time migration helpers).
+# Uses scripts/* rather than scripts/ so named tools below can be re-included:
+# git does not descend into a directory excluded by its directory form.
+scripts/*
+!scripts/collect-device-info.sh
 
 # AI agent config files
 CLAUDE.md
