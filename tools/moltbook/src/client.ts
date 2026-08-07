@@ -548,7 +548,9 @@ async function fileForm(filePath: string, field: string): Promise<FormData> {
     throw new MoltbookError(`Cannot read ${filePath}: ${reason}`);
   }
   const name = basename(filePath);
-  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  // `dot > 0` rather than `!== -1`: a leading dot makes a dotfile, not an extension.
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot).toLowerCase() : '';
   const form = new FormData();
   form.set(
     field,

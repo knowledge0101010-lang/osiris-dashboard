@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MoltbookClient, MoltbookError } from './client.ts';
 
@@ -6,6 +9,7 @@ interface Capture {
   method?: string;
   headers: Record<string, string>;
   body?: string;
+  raw?: BodyInit | null;
   redirect?: RequestRedirect;
 }
 
@@ -23,6 +27,7 @@ function stubFetch(
       method: init?.method,
       headers,
       body: typeof init?.body === 'string' ? init.body : undefined,
+      raw: init?.body,
       redirect: init?.redirect,
     });
     const status = response.status ?? 200;
@@ -89,6 +94,43 @@ describe('MoltbookClient transport', () => {
 
     expect(JSON.parse(calls[0].body ?? '{}')).toEqual({ content: 'top level' });
     expect(JSON.parse(calls[1].body ?? '{}')).toEqual({ content: 'a reply', parent_id: 'c9' });
+  });
+});
+
+describe('MoltbookClient file uploads', () => {
+  async function upload(fileName: string): Promise<Blob> {
+    const dir = await mkdtemp(join(tmpdir(), 'moltbook-upload-'));
+    const path = join(dir, fileName);
+    await writeFile(path, 'not really an image');
+
+    const { fetchImpl, calls } = stubFetch();
+    await client(fetchImpl).uploadAvatar(path);
+
+    const form = calls[0].raw as FormData;
+    expect(form).toBeInstanceOf(FormData);
+    const file = form.get('file');
+    expect(file).toBeInstanceOf(Blob);
+    return file as Blob;
+  }
+
+  it('maps known extensions to their MIME type, case-insensitively', async () => {
+    expect((await upload('avatar.PNG')).type).toBe('image/png');
+    expect((await upload('avatar.jpeg')).type).toBe('image/jpeg');
+  });
+
+  it('falls back to octet-stream for an extension-less file', async () => {
+    expect((await upload('avatar')).type).toBe('application/octet-stream');
+  });
+
+  it('does not treat a dotfile name as an extension', async () => {
+    // ".png" is a dotfile, not a PNG — the leading dot must not be read as one.
+    expect((await upload('.png')).type).toBe('application/octet-stream');
+  });
+
+  it('reports a missing file clearly', async () => {
+    const { fetchImpl, calls } = stubFetch();
+    await expect(client(fetchImpl).uploadAvatar('/nope/missing.png')).rejects.toThrow(/Cannot read/);
+    expect(calls).toHaveLength(0);
   });
 });
 
