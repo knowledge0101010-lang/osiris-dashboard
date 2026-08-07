@@ -113,6 +113,18 @@ state.json (resumable), and report.md.
    ───────────────────────────────────────────────────────────── */
 
 async function loadBoard(file) {
+  // A board runs its `verify` lines as shell commands, so an unreviewed board
+  // is unreviewed code. One from inside the repo went through PR review; one
+  // handed over some other way did not.
+  if (!file.startsWith(`${REPO_ROOT}${path.sep}`)) {
+    process.stderr.write(
+      `orchestra: warning — board is outside this repository:\n`
+      + `    ${file}\n`
+      + `  Its 'verify' lines run as shell commands here. Read it before running,\n`
+      + `  or re-run with --dry-run to print what it would execute.\n\n`,
+    );
+  }
+
   let raw;
   try {
     raw = await fsp.readFile(file, 'utf8');
@@ -346,6 +358,17 @@ function runCodex(task, runDir, worktreeDir, prompt, log) {
 /**
  * The harness — not the model — decides whether a task is done. The verify
  * command runs in the task's own worktree; its output is the evidence.
+ *
+ * TRUST BOUNDARY: `verify` is a shell command line by design — real checks
+ * need pipes, `&&`, and redirection (`npm run lint && npm run test -- src/x`).
+ * The board therefore sits at the same trust level as `package.json` scripts,
+ * a Makefile, or this file: whoever can write it can already run code here.
+ * Review board changes in PRs the way you review scripts.
+ *
+ * Splitting on whitespace and dropping `shell` would not move that boundary —
+ * `sh -c '...'` survives it — while silently mis-running every compound
+ * command, so it is not done. Keep untrusted boards out instead; `--board`
+ * warns when the file comes from outside the repo.
  */
 async function verify(task, worktreeDir) {
   if (!task.verify) return { passed: true, output: '(no verify command configured)' };
