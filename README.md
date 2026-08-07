@@ -40,6 +40,10 @@ Osiris is a production-grade OSINT platform that provides situational awareness 
 | **Crypto** | BTC + ETH Wallet Tracing, OFAC SDN Match | blockstream.info, Blockscout, OpenSanctions |
 | **Sanctions** | Person / Org / Vessel SDN Search | OpenSanctions (US OFAC SDN mirror) |
 | **Telegram OSINT** | Geoparsed Posts from Public Channels | `t.me/s/<channel>` web preview |
+| **AIxCC Archive** | 42 Repos: 7 Finalist CRSs, Infra, 24 Challenge Targets | [AIxCC Competition Archive](https://archive.aicyberchallenge.com) |
+
+The AIxCC registry indexes the DARPA AI Cyber Challenge open source release — see
+**[AIXCC.md](AIXCC.md)** for the catalog, the `/api/aixcc` endpoint, and how to verify it.
 
 ---
 
