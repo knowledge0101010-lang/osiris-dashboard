@@ -56,3 +56,9 @@ scanner_backend_backup.js
 
 # Security - Prevent accidental manual leaks
 *Manual*.md
+
+# Orchestra runtime output (worker branches are committed; run artifacts are not)
+/.orchestra/
+
+# Android bridge local state (pairing hosts, device serials)
+/android/.local/

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "$comment": "Orchestra task board. Claude Code is the conductor; codex exec runs are the players. See orchestra/README.md.",
+  "defaults": {
+    "sandbox": "workspace-write",
+    "timeoutMs": 1800000,
+    "verifyRetries": 1,
+    "verify": "npm run lint"
+  },
+  "tasks": [
+    {
+      "id": "example-lint-fix",
+      "title": "Fix outstanding ESLint warnings",
+      "prompt": "Run `npm run lint` and fix every warning it reports. Do not change behaviour: only rename, reorder, or annotate. Re-run lint until it is clean.",
+      "dependsOn": [],
+      "verify": "npm run lint"
+    },
+    {
+      "id": "example-test-pass",
+      "title": "Make the vitest suite green",
+      "prompt": "Run `npm run test`. For each failing test, read the test and the code under test, then fix the code (not the test) unless the test itself encodes a wrong expectation. Explain any test you change.",
+      "dependsOn": [],
+      "verify": "npm run test"
+    }
+  ]
+}
