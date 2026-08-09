@@ -40,8 +40,14 @@ scanner/
 # Data files
 threatfox.json
 
+# Python bytecode (skill scripts)
+__pycache__/
+*.py[cod]
+
 # Dev scripts (one-time migration helpers)
-scripts/
+# Anchored to the repo root: an unanchored "scripts/" also matches nested
+# directories such as .claude/skills/*/scripts/.
+/scripts/
 
 # AI agent config files
 CLAUDE.md
