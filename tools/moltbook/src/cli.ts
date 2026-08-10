@@ -7,7 +7,7 @@
  */
 
 import { rm } from 'node:fs/promises';
-import { DEFAULT_API_BASE, MoltbookClient, MoltbookError } from './client.ts';
+import { DEFAULT_API_BASE, MoltbookClient, MoltbookError, normaliseBase } from './client.ts';
 import {
   allowUntrustedHost,
   createClient,
@@ -310,17 +310,29 @@ const commands: Record<string, { summary: string; usage: string; run: Handler }>
     summary: 'Diagnose connectivity, credentials and claim status',
     usage: 'moltbook doctor',
     run: async (ctx) => {
-      const baseUrl = resolveBaseUrl(ctx.flags.baseUrl);
+      const configuredBase = resolveBaseUrl(ctx.flags.baseUrl);
+      // Report the base actually used, not the one configured: the apex host is
+      // silently rewritten to www, and hiding that defeats the point of doctor.
+      let baseUrl = configuredBase;
+      let baseNote = '';
+      try {
+        baseUrl = normaliseBase(configuredBase);
+        if (baseUrl !== configuredBase) baseNote = ` (rewritten from ${configuredBase})`;
+      } catch (error) {
+        baseNote = ` — INVALID: ${describeCliError(error)}`;
+      }
+
       const credentials = await resolveCredentials(ctx.flags.apiKey);
       const report: Record<string, unknown> = {
         base_url: baseUrl,
+        configured_base_url: configuredBase,
         credentials_source: credentials?.source ?? 'none',
         credentials_path: credentials?.path,
         api_key: credentials ? maskKey(credentials.api_key) : null,
       };
 
       const lines: string[] = [
-        `API base        : ${baseUrl}`,
+        `API base        : ${baseUrl}${baseNote}`,
         `Credentials     : ${credentials ? `${credentials.source}${credentials.path ? ` (${credentials.path})` : ''}` : 'NOT FOUND'}`,
         `API key         : ${credentials ? maskKey(credentials.api_key) : '—'}`,
       ];
@@ -332,12 +344,26 @@ const commands: Record<string, { summary: string; usage: string; run: Handler }>
         return;
       }
 
-      const client = new MoltbookClient({
-        apiKey: credentials.api_key,
-        baseUrl,
-        allowUntrustedHost: allowUntrustedHost(),
-        timeoutMs: 15_000,
-      });
+      let client: MoltbookClient;
+      try {
+        client = new MoltbookClient({
+          apiKey: credentials.api_key,
+          baseUrl,
+          allowUntrustedHost: allowUntrustedHost(),
+          timeoutMs: 15_000,
+        });
+      } catch (error) {
+        // A rejected base is itself the diagnosis — report it, don't abort.
+        const failure = error instanceof MoltbookError ? error : new MoltbookError(String(error));
+        report.reachable = null;
+        report.error = failure.message;
+        report.hint = failure.hint;
+        lines.push('', `Error           : ${failure.message}`);
+        if (failure.hint) lines.push(`Hint            : ${failure.hint}`);
+        emit(ctx.flags, report, () => lines.forEach((line) => out(line)));
+        process.exitCode = 1;
+        return;
+      }
 
       try {
         const me = await client.me();

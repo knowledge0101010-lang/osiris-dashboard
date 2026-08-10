@@ -487,7 +487,12 @@ export class MoltbookClient {
 
 // ------------------------------------------------------------------- helpers
 
-function normaliseBase(base: string): string {
+/**
+ * Canonicalises an API base: rejects non-https, and rewrites the apex host
+ * (which redirects and drops the Authorization header) to `www`.
+ * Exported so `moltbook doctor` can report the base actually used.
+ */
+export function normaliseBase(base: string): string {
   let url: URL;
   try {
     url = new URL(base);
