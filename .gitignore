@@ -44,7 +44,9 @@ threatfox.json
 scripts/
 
 # AI agent config files
-CLAUDE.md
+# CLAUDE.md is tracked: it carries shared project rules (SSRF guard, rate
+# limiting, orchestra/android invariants) that every contributor's agent needs.
+# AGENTS.md stays ignored for personal, per-developer preferences.
 AGENTS.md
 
 # Internal dev notes
