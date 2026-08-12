@@ -77,7 +77,10 @@ cmd_start() {
   printf '    Detach with Ctrl-B then D — the session keeps running.\n\n'
 
   # -A attaches if the session appeared between the check and now.
-  exec tmux new-session -A -s "$SESSION" "claude $*"
+  # Pass the command as separate arguments, not one string: tmux execs an argv
+  # directly but hands a single string to a shell, which would re-split on
+  # whitespace, expand globs, and run metacharacters in `claude --foo "two words"`.
+  exec tmux new-session -A -s "$SESSION" claude "$@"
 }
 
 cmd_attach() {

@@ -44,14 +44,19 @@ cd ~/osiris
 bash android/termux-setup.sh
 ```
 
-스크립트가 하는 일 — **모두 물어보고 진행한다**:
+스크립트가 하는 일:
+
+**묻지 않고 바로 진행** — 설치만 하고 기기 밖으로 아무것도 열지 않는다.
 
 1. `nodejs-lts git tmux openssh termux-api ripgrep` 설치
-2. 공유 저장소 접근 권한 (안드로이드 시스템 다이얼로그)
-3. `npm install -g @anthropic-ai/claude-code`
-4. `claude-android` 래퍼를 `$PREFIX/bin`에 설치
-5. wake lock 획득 (선택)
-6. sshd 활성화 (선택 — 아래 "기기 접속" 참조)
+2. `npm install -g @anthropic-ai/claude-code`
+3. `claude-android` 래퍼를 `$PREFIX/bin`에 설치
+
+**물어본 뒤에만 진행** — 기기에 닿는 범위를 넓히는 것들.
+
+4. 공유 저장소 접근 권한 (안드로이드 시스템 다이얼로그가 따로 뜬다)
+5. wake lock 획득
+6. sshd 활성화 (아래 "기기 접속" 참조 — 공개키가 없으면 시작하지 않는다)
 
 설치 후:
 
@@ -154,10 +159,25 @@ adb가 직접 쓸 수 없는 경우가 많으니, `/sdcard/`로 밀어 넣고 �
 이건 **본인 기기**를 본인이 쓰는 도구다. 그 전제가 깨지면 안 된다.
 
 - **sshd는 기본 비활성.** `termux-setup.sh`가 명시적으로 물어본 뒤에만 켠다.
-- **키 인증 권장.** 비밀번호 인증은 Termux에서 약하다. 공개키를 등록하라.
-- **8022는 기기 로컬 포트다.** `adb forward` 없이는 외부에서 못 닿는다.
-  공용 Wi-Fi에서 무선 디버깅을 켜 두지 마라 — 같은 네트워크의 다른 기기가
-  페어링을 시도할 수 있다.
+- **공개키가 없으면 sshd를 시작하지 않는다.** 비밀번호 인증이 꺼져 있으므로
+  키가 유일한 진입 수단이고, 키가 없으면 켜 봐야 아무도 못 들어간다.
+- **강제되는 설정.** Termux sshd의 기본값은 모든 인터페이스에 바인딩하고
+  비밀번호 인증을 허용한다. 이 문서가 말하는 접근 모델과 어긋나므로,
+  스크립트가 `$PREFIX/etc/ssh/sshd_config.d/claude-android.conf`에 명시적으로 고정한다:
+
+  ```text
+  ListenAddress 127.0.0.1        # 루프백만 — Wi-Fi에서 안 보인다
+  ListenAddress ::1
+  PasswordAuthentication no
+  KbdInteractiveAuthentication no
+  PermitEmptyPasswords no
+  PubkeyAuthentication yes
+  ```
+
+  설치 직후 `sshd -T`로 실제 적용값을 출력하므로 눈으로 확인할 수 있다.
+- **8022는 루프백 전용이다.** `adb forward tcp:8022 tcp:8022` 없이는 외부에서 못 닿는다.
+  그래도 공용 Wi-Fi에서 무선 디버깅을 켜 두지 마라 — sshd와 별개로 adb 자체가
+  같은 네트워크에 노출된다.
 - **작업이 끝나면 끄기:**
   ```bash
   ./android/bridge.sh disconnect   # 워크스테이션

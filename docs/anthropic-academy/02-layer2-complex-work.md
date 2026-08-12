@@ -30,7 +30,7 @@
 계획이 승인되어야 상태가 전이되고 그때 편집 권한이 열린다.
 즉 §3(권한)의 응용이지 §5만의 기능이 아니다.
 
-```
+```text
 [plan mode]  read/grep/glob 허용 · edit/write 차단
      │
      │  사람이 계획 승인
@@ -79,7 +79,7 @@ initializer 에이전트가 환경을 한 번 세팅하고, coding 에이전트�
 
 핵심은 **새 `messages[]`** 다.
 
-```
+```text
 부모 루프 messages[]  ─────────────────────────────────▶
                         │                          ▲
                         │ 위임                     │ 결과 한 줄
@@ -140,7 +140,7 @@ LangChain의 측정치가 이 결정을 구체화한다:
 
 ### 점진적 공개 (Progressive Disclosure)
 
-```
+```text
 Level 1  name + description        항상 컨텍스트에 (수십 토큰)
             │ 모델이 관련 있다고 판단
             ▼
@@ -220,7 +220,7 @@ description: >
 
 싼 리듀서를 먼저, 요약은 최후에. 요약은 모델 호출 비용이 들고 디테일을 잃는다.
 
-```
+```text
 budget    → 거대한 툴 결과를 디스크에 저장하고 프리뷰만 남김   (무손실)
 snip      → 낡은 중간 턴을 버리고 head + 최근 tail 유지        (싸다)
 micro     → 오래된 tool_result 본문을 스텁으로 교체            (싸다)

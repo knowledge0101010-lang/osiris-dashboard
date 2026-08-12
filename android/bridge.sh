@@ -51,7 +51,40 @@ require_device() {
    2. Settings > System > Developer options > enable 'USB debugging'
    3. Plug in over USB and accept the 'Allow USB debugging?' prompt
    Then: ./android/bridge.sh devices"
-  [ "$n" -eq 1 ] || warn "$n devices attached — adb will pick one; use ANDROID_SERIAL to choose"
+
+  # Ambiguity here is not survivable: every later adb call would fail with
+  # "more than one device", so refuse now with the list and the fix.
+  if [ -n "${ANDROID_SERIAL:-}" ]; then
+    adb devices | awk 'NR>1 && $2=="device" {print $1}' | grep -qxF "$ANDROID_SERIAL" \
+      || die "ANDROID_SERIAL=$ANDROID_SERIAL is not an authorised device. Attached:
+$(adb devices | awk 'NR>1 && $2=="device" {print "     " $1}')"
+    return
+  fi
+  [ "$n" -eq 1 ] || die "$n devices attached — pick one explicitly:
+$(adb devices | awk 'NR>1 && $2=="device" {print "     ANDROID_SERIAL=" $1}')"
+}
+
+# Termux runs as its own app uid, so the account name is only knowable from
+# inside Termux. `adb shell` reports Android's `shell` user, which is a
+# different account and never the right SSH login.
+termux_user() {
+  if [ -n "${SSH_USER:-}" ]; then
+    printf '%s\n' "$SSH_USER"
+    return 0
+  fi
+  local u
+  u="$(adb shell 'run-as com.termux /data/data/com.termux/files/usr/bin/whoami' 2>/dev/null | tr -d '\r')"
+  case "$u" in
+    ''|*'not debuggable'*|*error*|*Error*|*Exception*) return 1 ;;
+    *) printf '%s\n' "$u" ;;
+  esac
+}
+
+# Run a command inside Termux's environment. Android's PATH does not include
+# Termux's bin directory, so a bare `adb shell command -v claude` always says
+# "not installed" even when it is.
+termux_exec() {
+  adb shell "run-as com.termux /data/data/com.termux/files/usr/bin/bash -lc $(printf '%q' "$1")" 2>/dev/null | tr -d '\r'
 }
 
 # ── commands ─────────────────────────────────────────────────────
@@ -107,19 +140,19 @@ cmd_ssh() {
   adb forward "tcp:$SSH_PORT" "tcp:$SSH_PORT" >/dev/null
 
   local user
-  user="$(adb shell 'echo $USER' 2>/dev/null | tr -d '\r' || true)"
+  user="$(termux_user)" || die "cannot determine the Termux username.
+   Run 'whoami' inside Termux on the device, then re-run with it:
+     SSH_USER=<name> ./android/bridge.sh ssh"
 
   cat <<NOTE
 
-  Opening a shell on the device over the adb-forwarded port.
+  Opening a shell on the device as '$user' over the adb-forwarded port.
   Termux's sshd must be running — start it on the device with:
       sshd
   or re-run: bash android/termux-setup.sh
 
 NOTE
-  # Termux's username is derived from the app's uid and varies per
-  # install, so prefer whatever the user set in SSH_USER.
-  exec ssh -p "$SSH_PORT" "${SSH_USER:-${user:-u0_a0}}@localhost"
+  exec ssh -p "$SSH_PORT" "$user@localhost"
 }
 
 cmd_push() {
@@ -162,7 +195,16 @@ cmd_status() {
     adb devices -l | sed 's/^/    /'
     printf '\n'
     say "Device-side checks"
-    adb shell 'command -v claude >/dev/null 2>&1 && echo "  claude: installed" || echo "  claude: NOT installed"' 2>/dev/null | tr -d '\r' || warn "could not query device"
+    local user
+    if user="$(termux_user)"; then
+      printf '    termux user: %s\n' "$user"
+      # Query through Termux's own shell — Android's PATH has no Termux bin dir.
+      termux_exec 'command -v claude >/dev/null 2>&1 && echo "  claude: installed" || echo "  claude: NOT installed"' \
+        || warn "  could not query Termux (is the app installed and debuggable?)"
+    else
+      warn "  termux user unknown — set SSH_USER, or check Termux is installed"
+    fi
+    # sshd is an Android-side process, so this one is correct over plain adb.
     adb shell 'pgrep -x sshd >/dev/null 2>&1 && echo "  sshd: running" || echo "  sshd: not running"' 2>/dev/null | tr -d '\r' || true
   else
     warn "no authorised device"

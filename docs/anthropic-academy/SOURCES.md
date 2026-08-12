@@ -175,19 +175,27 @@
 
 이 노트의 근거를 직접 확인하려면:
 
+`--depth 1`은 각 레포의 **현재 기본 브랜치**를 따라간다. 그래서 나중에 클론하면
+이 노트가 근거로 삼은 것과 다른 내용을 받는다. 아래 SHA로 고정하라.
+
 ```bash
 mkdir -p refs && cd refs
-git clone --depth 1 https://github.com/hardness1020/awesome-agent-architecture.git
-git clone --depth 1 https://github.com/ai-boost/awesome-harness-engineering.git
-git clone --depth 1 https://github.com/Picrew/awesome-agent-harness.git
-git clone --depth 1 https://github.com/langchain-ai/deepagents.git
-git clone --depth 1 https://github.com/anthropics/claude-code.git
-git clone --depth 1 https://github.com/openai/codex.git
+clone() { git clone --filter=blob:none "https://github.com/$1.git" "$(basename "$1")" \
+          && git -C "$(basename "$1")" checkout -q "$2"; }
+
+clone hardness1020/awesome-agent-architecture 4b1bbb20ea5d07125ef25f817be699bd5c1354ca
+clone ai-boost/awesome-harness-engineering    09547511358c06d7c8dd6bf9a3de027a67356425
+clone Picrew/awesome-agent-harness            85d6410079854334e50b2de8e8961b4ac09de1e7
+clone langchain-ai/deepagents                 529f7e8a16c7441873a305a9fa36c2721fa7a5b7
+clone anthropics/claude-code                  66edf5358349356774812264b75b8ea792f0d0a3
+clone openai/codex                            c87a218bd3e7ee0a0181109b3ff7bbc2156de13e
 ```
+
+이 SHA들이 2026-08-07 작성 시점에 실제로 읽은 리비전이다.
 
 핵심 파일:
 
-```
+```text
 awesome-agent-architecture/README.md              24개 섹션 지도
 awesome-agent-architecture/sections/NN-*/README.md  각 섹션 (메커니즘·비교·실패 모드)
 awesome-agent-architecture/sections/NN-*/src/     실행 가능한 데모 (섹션마다 누적)

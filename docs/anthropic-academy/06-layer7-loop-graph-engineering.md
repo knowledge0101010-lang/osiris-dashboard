@@ -25,7 +25,7 @@
 
 ### 네 개의 중첩 루프
 
-```
+```text
 ┌─ 개선 루프 ─────────────────────────────────────────────┐
 │  트레이스·평가 → 하네스 설정/스킬/모델 변경              │
 │  "시스템이 나아지고 있는가?"                             │
@@ -56,6 +56,7 @@
 
 ```python
 def verified_run(task, worker, checker, budget=2):
+    budget = max(1, budget)                    # 0이면 한 번도 안 돌고 실패로 끝난다
     feedback = ""
     attempts = []
     for n in range(1, budget + 1):            # 천장: 하네스가 강제
@@ -77,8 +78,19 @@ def verified_run(task, worker, checker, budget=2):
 | **피드백은 데이터** | 실패 판정이 재시도 프롬프트에 실려 들어간다. 2차 시도는 1차가 뭘 틀렸는지 안다 |
 | **`ok: False`는 에스컬레이션 신호** | 시도 기록이 사람에게 간다. 영원히 재시도하지 않는다 |
 
-이 레포의 구현: [`orchestra/dispatch.mjs`](../../orchestra/dispatch.mjs)의
-`verify()` + `retryPrompt()` + `verifyRetries` 예산.
+**이 레포의 구현은 위 표의 축소판이다.** 차이를 분명히 해 둘 값어치가 있다.
+
+| | 위 개념 모델 | [`orchestra/dispatch.mjs`](../../orchestra/dispatch.mjs) |
+| --- | --- | --- |
+| 채점자 | 새 컨텍스트를 가진 **별도 에이전트** | **셸 명령 검증자** — `runCodex` 뒤에 `verify()`가 종료 코드로 판정 |
+| 루브릭 | 루프 밖의 문장 | 루프 밖의 **명령어** (`board.json`의 `verify`) |
+| 피드백 | 판정문 | 실패 출력 tail이 `retryPrompt()`로 |
+| 예산 | `range(budget + 1)` | `Math.max(1, verifyRetries + 1)` |
+
+**셸 검증자는 별도 에이전트보다 약하다.** 종료 코드는 "체크를 통과시키려고
+체크를 약화시킨" 경우를 못 잡는다. 그래서 이 레포는 그 자리를
+[`codex-liaison`](../../.claude/agents/codex-liaison.md) 서브에이전트에게 맡긴다 —
+그게 표의 "별도 채점자" 역할이고, diff를 브리프와 대조한다.
 
 ### 예산과 정지 조건
 
@@ -172,6 +184,8 @@ def verified_run(task, worker, checker, budget=2):
 
 `statewright` 같은 프로젝트의 결과가 이 섹션의 논거를 가장 세게 만든다:
 
+> (2차 출처 — [SOURCES](SOURCES.md) §3의 큐레이션 요약 기반, 원논문 미확인)
+>
 > 워크플로 단계마다 **호출 가능한 툴을 제한**했더니,
 > 로컬 모델이 SWE-bench 부분집합에서 2/10 → **10/10**이 되었다.
 > 툴 공간을 줄인 것만으로.
@@ -193,7 +207,8 @@ Claude가 **JavaScript 오케스트레이션 스크립트를 생성**해서 수�
 
 ### 실행 패턴의 분류
 
-70개 오픈소스 LLM 에이전트 프로젝트 분석에 따르면 **60%가 Agent Loop 패턴**을 쓴다.
+70개 오픈소스 LLM 에이전트 프로젝트 분석에 따르면 **60%가 Agent Loop 패턴**을 쓴다
+(arXiv:2604.11378 — 2차 출처, 요약 기반).
 나머지는 이벤트 기반, 상태 머신, 그래프/플로, 하이브리드.
 
 선택 기준은 **제어 가능성 / 표현력 / 구현 용이성**의 트레이드오프다:

@@ -245,11 +245,60 @@ async function createWorktree(taskId, baseSha) {
   await fsp.mkdir(WORKTREE_ROOT, { recursive: true });
 
   // A leftover worktree from an interrupted run would silently reuse stale
-  // state, so tear it down before creating a fresh one.
-  await removeWorktree(dir, { force: true }).catch(() => {});
+  // state, so it has to go before a fresh one is created — but only when it
+  // holds nothing a human still needs. An interrupted run can leave a worker's
+  // uncommitted work here, and the rule everywhere else in this file is that
+  // dirty worktrees survive for review. Forcing the removal would break that
+  // rule at exactly the moment it matters.
+  if (fs.existsSync(dir)) {
+    if (!(await worktreeIsClean(dir).catch(() => false))) {
+      throw new Error(
+        `worktree ${dir} has uncommitted changes from an earlier run.\n`
+        + `  Inspect it, then commit or discard the changes and re-run.\n`
+        + `  To discard: git -C ${dir} reset --hard && git worktree remove ${dir}`,
+      );
+    }
+    await removeWorktree(dir).catch(() => {});
+  }
+  await git(['worktree', 'prune']).catch(() => {});
   await git(['branch', '-D', branch]).catch(() => {});
   await git(['worktree', 'add', '-b', branch, dir, baseSha]);
   return { dir, branch };
+}
+
+/**
+ * Pick the commit a task's worktree starts from, and merge in any further
+ * dependencies.
+ *
+ * `dependsOn` has to mean more than ordering: a task declaring a dependency
+ * expects that dependency's *output* as its input. Branching every task from
+ * the run's base would order them correctly and still hand each one a tree
+ * without the work it was told to build on.
+ *
+ * Dependencies that passed without producing a commit contribute nothing and
+ * are skipped. A conflict between two dependencies is a decomposition error,
+ * so it fails the task loudly rather than being resolved here.
+ */
+async function baseForTask(task, results) {
+  const tips = task.dependsOn
+    .map((dep) => results.get(dep)?.commit)
+    .filter((commit) => typeof commit === 'string' && commit.length > 0);
+  return { base: tips[0] ?? null, merges: tips.slice(1) };
+}
+
+async function mergeDependencies(worktreeDir, merges) {
+  for (const commit of merges) {
+    try {
+      await git(['merge', '--no-edit', commit], worktreeDir);
+    } catch (err) {
+      await git(['merge', '--abort'], worktreeDir).catch(() => {});
+      throw new Error(
+        `merging dependency ${commit.slice(0, 8)} conflicted.\n`
+        + `  Two dependencies changed the same lines — the board is split along the wrong seam.\n`
+        + `  ${err.message.split('\n')[0]}`,
+      );
+    }
+  }
 }
 
 async function worktreeIsClean(dir) {
@@ -311,7 +360,15 @@ function runCodex(task, runDir, worktreeDir, prompt, log) {
 
     let child;
     try {
-      child = spawn('codex', args, { cwd: REPO_ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+      // `detached` puts the child in its own process group so a timeout can
+      // signal the whole group. Killing only the direct `codex` process would
+      // leave its descendants — compilers, test runners, package managers —
+      // still writing to the worktree while verification reads it.
+      child = spawn('codex', args, {
+        cwd: REPO_ROOT,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: process.platform !== 'win32',
+      });
     } catch (err) {
       events.end();
       stderr.end();
@@ -329,10 +386,16 @@ function runCodex(task, runDir, worktreeDir, prompt, log) {
       resolve({ ...outcome, ms: Date.now() - started });
     };
 
+    let timedOut = false;
     const timer = setTimeout(() => {
-      log(`timeout after ${task.timeoutMs}ms — killing`);
-      child.kill('SIGKILL');
-      finish({ ok: false, reason: `timeout after ${task.timeoutMs}ms`, code: null });
+      timedOut = true;
+      log(`timeout after ${task.timeoutMs}ms — killing the process tree`);
+      killTree(child);
+      // Do not settle here. Waiting for 'close' means the descendants have
+      // stopped touching the worktree before verification looks at it.
+      setTimeout(() => {
+        finish({ ok: false, reason: `timeout after ${task.timeoutMs}ms (tree did not exit)`, code: null });
+      }, 10_000).unref?.();
     }, task.timeoutMs);
 
     child.stdout.pipe(events);
@@ -346,9 +409,33 @@ function runCodex(task, runDir, worktreeDir, prompt, log) {
     });
 
     child.on('close', (code) => {
+      if (timedOut) {
+        finish({ ok: false, reason: `timeout after ${task.timeoutMs}ms`, code: null });
+        return;
+      }
       finish({ ok: code === 0, reason: code === 0 ? null : `codex exited ${code}`, code });
     });
   });
+}
+
+/**
+ * Kill a child and everything it spawned.
+ *
+ * Node has no cross-platform process-tree kill and this harness carries no
+ * dependencies, so each platform gets its own one-liner: a negative pid
+ * signals the process group on POSIX, `taskkill /T` walks the tree on Windows.
+ */
+function killTree(child) {
+  if (!child.pid) return;
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+    return;
+  }
+  try {
+    process.kill(-child.pid, 'SIGKILL'); // negative pid: the whole group
+  } catch {
+    child.kill('SIGKILL'); // group already gone, or never created
+  }
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -405,20 +492,28 @@ function retryPrompt(task, failureOutput) {
    Per-task driver
    ───────────────────────────────────────────────────────────── */
 
-async function runTask(task, ctx) {
+async function runTask(task, ctx, results) {
   const log = (msg) => process.stdout.write(`[${task.id}] ${msg}\n`);
   const runDir = path.join(RUNS_ROOT, task.id);
-  await fsp.mkdir(runDir, { recursive: true });
 
-  const { dir: worktreeDir, branch } = ctx.dryRun
-    ? { dir: path.join(WORKTREE_ROOT, task.id), branch: `${BRANCH_PREFIX}${task.id}` }
-    : await createWorktree(task.id, ctx.baseSha);
-
+  // --dry-run is documented as writing nothing, so it must not create the run
+  // directory either. Plan, print, return.
   if (ctx.dryRun) {
+    const worktreeDir = path.join(WORKTREE_ROOT, task.id);
     const argv = buildCodexArgs(task, runDir, worktreeDir, task.prompt);
     log(`would run: codex ${argv.map(shellQuote).join(' ')}`);
     if (task.verify) log(`would verify with: ${task.verify}`);
-    return { id: task.id, status: 'planned', branch, attempts: [] };
+    return { id: task.id, status: 'planned', branch: `${BRANCH_PREFIX}${task.id}`, attempts: [] };
+  }
+
+  await fsp.mkdir(runDir, { recursive: true });
+
+  const { base, merges } = await baseForTask(task, results);
+  if (base) log(`branching from dependency ${base.slice(0, 8)}`);
+  const { dir: worktreeDir, branch } = await createWorktree(task.id, base ?? ctx.baseSha);
+  if (merges.length > 0) {
+    log(`merging ${merges.length} further dependenc${merges.length === 1 ? 'y' : 'ies'}`);
+    await mergeDependencies(worktreeDir, merges);
   }
 
   const attempts = [];
@@ -506,7 +601,7 @@ async function schedule(tasks, ctx) {
       }
       if (!depsSatisfied(id)) continue;
       pending.delete(id);
-      running.set(id, runTask(byId.get(id), ctx).then(
+      running.set(id, runTask(byId.get(id), ctx, results).then(
         (r) => ({ id, result: r }),
         (err) => ({ id, result: { id, status: 'failed', branch: null, attempts: [{ attempt: 1, phase: 'harness', passed: false, reason: err.message }] } }),
       ));
@@ -523,7 +618,7 @@ async function schedule(tasks, ctx) {
     running.delete(id);
     results.set(id, result);
     ctx.state.tasks[id] = result;
-    await saveState(ctx.state);
+    if (!ctx.dryRun) await saveState(ctx.state);
   }
 
   return results;
@@ -596,7 +691,8 @@ async function main() {
     }
   }
 
-  await writeReport(results, ctx);
+  // A dry run must not overwrite the report from the last real run.
+  if (!opts.dryRun) await writeReport(results, ctx);
 
   const rows = [...results.values()];
   const failed = rows.filter((r) => r.status === 'failed' || r.status === 'blocked');

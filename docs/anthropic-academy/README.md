@@ -53,7 +53,7 @@ Academy 커리큘럼은 제품 단위로 나뉘어 있다 — Claude Code 코스
 
 **개발자 트랙 (권장)**
 
-```
+```text
 Claude 101 ──▶ Claude Code 101 ──▶ Claude Code in Action ──▶ Agent Skills ──▶ Subagents
      │              │                       │                     │              │
      ▼              ▼                       ▼                     ▼              ▼
@@ -62,7 +62,7 @@ Claude 101 ──▶ Claude Code 101 ──▶ Claude Code in Action ──▶ A
 
 **플랫폼/API 트랙**
 
-```
+```text
 Claude Platform 101 ──▶ Building with the Claude API ──▶ MCP 코스
         │                          │                        │
         ▼                          ▼                        ▼
@@ -71,7 +71,7 @@ Claude Platform 101 ──▶ Building with the Claude API ──▶ MCP 코스
 
 **자동화·운영 트랙 (강의 이후)**
 
-```
+```text
 [04 §12–15] 장기 실행 ──▶ [05 §20,23] 관측·평가 ──▶ [06 §21–22] 루프·그래프
 ```
 
@@ -97,5 +97,6 @@ Claude Platform 101 ──▶ Building with the Claude API ──▶ MCP 코스
 2026-08 기준으로 카탈로그가 계속 확장 중이라 실제 목록과 차이가 있을 수 있다.
 [00-curriculum-map.md](00-curriculum-map.md)에 검증 상태를 항목별로 표시했다.
 
-반면 **하네스 메커니즘 내용은 클론해서 직접 읽은 4개 레포지토리**를 근거로 한다.
+반면 **하네스 메커니즘 내용은 클론해서 직접 읽은 6개 레포지토리**를 근거로 한다
+(커밋 SHA는 [SOURCES.md](SOURCES.md) §5에 고정해 뒀다).
 공부하면서 카탈로그가 다르면 00번 문서만 고치면 되고, 01–09번 본문은 그대로 유효하다.

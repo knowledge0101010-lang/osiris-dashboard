@@ -9,8 +9,11 @@
 #  tmux-backed session, and (optionally) an SSH server so a
 #  workstation can reach the device over `adb forward`.
 #
-#  Everything here is opt-in and prompted. Nothing is enabled
-#  silently, and no credentials are stored by this script.
+#  Runs without asking: package installation, the global Claude Code
+#  install, and the claude-android wrapper.
+#  Asks first: shared storage, the wake lock, and SSH access — the
+#  three that widen what reaches the device. No credentials are
+#  stored by this script.
 # ═══════════════════════════════════════════════════════════════
 
 set -euo pipefail
@@ -106,13 +109,17 @@ setup_sshd() {
   cat <<'NOTE'
 
   ── Device access over SSH ────────────────────────────────────
-  This starts Termux's SSH server on port 8022, listening on the
-  device only. To reach it from a workstation you also need a USB
-  cable and `adb forward tcp:8022 tcp:8022` — see android/bridge.sh.
+  This starts Termux's SSH server on port 8022, bound to loopback
+  (127.0.0.1) with password authentication disabled. An authorized
+  public key is required — without one, sshd is not started.
 
-  What this means: anything that can reach port 8022 on this device
-  can run commands as you. Only enable it if you control the device
-  and the machine you will connect from.
+  Loopback binding means nothing on your Wi-Fi can reach it. To get
+  in from a workstation you need a USB cable and
+  `adb forward tcp:8022 tcp:8022` — see android/bridge.sh.
+
+  What this means: anything that can reach that forwarded port with
+  your private key can run commands as you. Only enable it if you
+  control the device and the machine you will connect from.
   ──────────────────────────────────────────────────────────────
 
 NOTE
@@ -128,30 +135,63 @@ NOTE
   if [ ! -s "$keyfile" ]; then
     cat <<'NOTE'
 
-  No authorized public key found. Password auth on Termux sshd is
-  awkward and weaker than a key. Paste your workstation's public key
-  now (the contents of ~/.ssh/id_ed25519.pub), or press Enter to skip
-  and set a password instead.
+  No authorized public key found. A key is required: this setup disables
+  password authentication, so there is no other way in.
+
+  Paste your workstation's public key now — the contents of
+  ~/.ssh/id_ed25519.pub — or press Enter to abort.
 
 NOTE
     printf '  public key> '
     local pubkey
     read -r pubkey || pubkey=""
-    if [ -n "$pubkey" ]; then
-      printf '%s\n' "$pubkey" >> "$keyfile"
-      chmod 600 "$keyfile"
-      ok "Public key added to $keyfile"
-    else
-      warn "No key added. Set a password with: passwd"
+    if [ -z "$pubkey" ]; then
+      warn "No key provided — sshd not started. Re-run this script when you have one."
+      return
     fi
+    printf '%s\n' "$pubkey" >> "$keyfile"
+    ok "Public key added to $keyfile"
   else
     ok "authorized_keys already present ($(wc -l < "$keyfile") key(s))"
   fi
+  chmod 600 "$keyfile"
 
-  say "Starting sshd on port 8022"
+  # Termux's sshd defaults to listening on every interface with password auth
+  # available. That contradicts the access model this repo documents — reachable
+  # only through `adb forward`, key auth only — so pin it explicitly rather than
+  # trusting the defaults.
+  local conf="$PREFIX/etc/ssh/sshd_config.d/claude-android.conf"
+  mkdir -p "$(dirname "$conf")"
+  cat > "$conf" <<'CONF'
+# Written by android/termux-setup.sh — loopback only, keys only.
+# Reachable from a workstation via: adb forward tcp:8022 tcp:8022
+ListenAddress 127.0.0.1
+ListenAddress ::1
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+CONF
+  chmod 600 "$conf"
+
+  # Older Termux sshd_config may not carry the Include line the drop-in needs.
+  if ! grep -qs '^Include .*sshd_config\.d' "$PREFIX/etc/ssh/sshd_config"; then
+    printf '\nInclude %s/etc/ssh/sshd_config.d/*.conf\n' "$PREFIX" >> "$PREFIX/etc/ssh/sshd_config"
+  fi
+
+  say "Starting sshd on 127.0.0.1:8022"
   pkill sshd 2>/dev/null || true
   sshd
-  ok "sshd running. Username: $(whoami) · Port: 8022"
+
+  # Report the settings that actually took effect, not the ones we asked for.
+  local effective
+  effective="$(sshd -T 2>/dev/null | awk '/^(listenaddress|passwordauthentication|kbdinteractiveauthentication) /')"
+  if [ -n "$effective" ]; then
+    printf '%s\n' "$effective" | sed 's/^/    /'
+  else
+    warn "could not read the effective sshd config — verify with: sshd -T"
+  fi
+  ok "sshd running. Username: $(whoami) · Port: 8022 · loopback only, key auth only"
   printf '    From your workstation:  ./android/bridge.sh ssh\n\n'
 }
 

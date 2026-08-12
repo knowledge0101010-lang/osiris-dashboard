@@ -118,10 +118,31 @@ for user_text in turns:
     reply = run_turn(messages, model)                # 제자리 append — 턴 N은 턴 1..N-1을 본다
 ```
 
-### 루프를 굴리는 두 개의 `stop_reason`
+> ⚠️ **이건 교육용 최소 루프다. 그대로 쓰면 안 된다.** 일부러 빠져 있는 것:
+>
+> - **권한 게이트.** `run_tool` 앞에 `allow`/`ask`/`deny` 판정이 없다 — §3이 넣는다.
+> - **툴 실패 처리.** `run_tool`이 예외를 던지면 `tool_result`가 안 붙어 트랜스크립트가 깨진다.
+>   실제 코드는 잡아서 `is_error: True`로 돌려줘야 한다
+>   ([§11](03-layer3-knowledge-resilience.md#11--에러-복구--긴-작업이-실패를-어떻게-견디는가)).
+> - **`stop_reason` 분기.** 아래 참조.
+>
+> 각 결함은 뒤 섹션이 하나씩 메운다. 그게 이 학습 구조의 방식이다.
 
-- `tool_use` → 툴 실행 → 결과 append → 다시 모델 호출
-- `end_turn` → 최종 답변 반환
+### 루프를 굴리는 `stop_reason`
+
+위 스니펫은 `!= "tool_use"`를 전부 최종 답으로 취급한다. **실제 API는 그렇지 않다.**
+
+| 값 | 의미 | 올바른 처리 |
+| --- | --- | --- |
+| `tool_use` | 툴 호출을 생성했다 | 실행 → 결과 append → 다시 호출 |
+| `end_turn` | 자연스럽게 응답을 마쳤다 | **여기서만** 최종 답으로 반환 |
+| `pause_turn` | 반복 한도에 걸려 일시정지 | 어시스턴트 메시지를 **그대로 되돌려 보내** 계속시킨다 |
+| `max_tokens` | `max_tokens`에 잘렸다 | 잘린 응답이다. 이어받거나 한도를 올린다 |
+| `stop_sequence` | 지정한 정지 시퀀스를 만났다 | `stop_sequence` 필드에 어느 것인지 담긴다 |
+| `refusal` | 안전 분류기가 생성을 거절 | 재시도해도 같다. 로깅하고 다르게 접근한다 |
+
+`pause_turn`을 최종 답으로 처리하면 작업이 조용히 중간에 끊긴다.
+`max_tokens`를 최종 답으로 처리하면 잘린 문장을 결과로 쓴다.
 
 `messages[]`가 이 세션의 **전체 대화 메모리**다. 툴 결과도 어시스턴트 답변도 모두 들어간다.
 
@@ -178,7 +199,7 @@ MCP는 네 가지 힌트를 정의한다: `readOnlyHint`, `destructiveHint`, `id
 
 여기서 나오는 개념이 **치명적 3요소(lethal trifecta)**:
 
-```
+```text
 비공개 데이터 접근  +  신뢰 불가 콘텐츠 노출  +  외부 통신
 = 개별 툴은 안전해도 조합이 위험
 ```
@@ -198,7 +219,7 @@ MCP는 네 가지 힌트를 정의한다: `readOnlyHint`, `destructiveHint`, `id
 
 ### 게이트의 위치
 
-```
+```text
 model ──▶ tool_use ──▶ [권한 게이트] ──▶ 툴 실행 ──▶ tool_result ──▶ model
                             │
                             └─▶ ask ──▶ 사람
@@ -248,7 +269,7 @@ OpenAI Codex도 같은 이름(`SessionStart`, `PreToolUse`, `PostToolUse`)의 �
 
 LangChain의 `AgentMiddleware`는 6개의 조합 가능한 훅으로 같은 문제를 푼다:
 
-```
+```text
 before_agent → before_model → wrap_model_call → wrap_tool_call → after_model → after_agent
 ```
 

@@ -84,7 +84,7 @@ Meta의 REA(Ranking Engineer Agent)는 이걸 극단까지 밀어붙인 사례�
 
 ### 왜 폴링하면 안 되는가
 
-```
+```text
 ❌ 나쁨:  작업 시작 → sleep 5 → 상태 확인 → sleep 5 → 상태 확인 → ...
 ✅ 좋음:  작업 시작 → 핸들 반환 → 다른 일 → [완료 알림이 루프를 깨움]
 ```
@@ -103,16 +103,30 @@ while (pending.size > 0 || running.size > 0) {
   for (const id of [...pending]) {
     if (running.size >= ctx.concurrency) break;
     if (!depsSatisfied(id)) continue;
-    running.set(id, runTask(byId.get(id), ctx));
+    pending.delete(id);                       // 없으면 매 바퀴 다시 시작한다
+    running.set(id, runTask(byId.get(id), ctx, results));
   }
+
+  // 돌고 있는 것도 없고 시작할 수 있는 것도 없으면, 남은 건 영원히 못 시작한다.
+  // 이 검사 없이 아래로 내려가면 Promise.race([])는 영원히 settle되지 않는다.
+  if (running.size === 0) {
+    for (const id of pending) results.set(id, { id, status: 'blocked' });
+    break;
+  }
+
   const { id, result } = await Promise.race(running.values());
   running.delete(id);
   results.set(id, result);
 }
 ```
 
-**교착 방지가 중요하다.** 실행 중인 것도 없고 대기 중인 것이 시작될 수도 없으면
-무한 루프가 된다. 그 상태를 감지해서 남은 걸 `blocked`로 마감해야 한다.
+두 줄이 필수다.
+
+- **`pending.delete(id)`** — 시작한 태스크를 대기 집합에서 빼지 않으면 다음 바퀴에서
+  같은 태스크를 또 시작한다.
+- **빈 `running` 가드** — `Promise.race([])`는 **거부도 이행도 하지 않는다.**
+  준비되는 태스크가 없는 상태로 여기 도달하면 프로세스가 조용히 멈춘다.
+  교착을 감지해 남은 걸 `blocked`로 마감하고 빠져나와야 한다.
 
 ### 실패 모드
 
@@ -156,7 +170,9 @@ Anthropic의 루프 taxonomy가 유용하다:
 
 - **스케줄이 인메모리.** 재시작하면 사라진다.
 - **중첩 실행.** 이전 실행이 안 끝났는데 다음이 시작된다 → 락 필요 (§12).
-- **타임존 혼동.** cron은 보통 UTC다. 로컬 시각을 그대로 넣으면 어긋난다.
+- **타임존 혼동.** cron은 UTC가 아니라 **시스템 또는 crontab에 설정된 타임존**을 쓴다
+  (Vixie/cronie 계열은 `CRON_TZ=`로 파일 단위 지정). 매니지드 스케줄러는 UTC 고정인 경우가 많다.
+  어느 쪽이든 **그 스케줄러의 실제 타임존을 적어 두지 않으면** 로컬 시각을 그대로 넣었다가 어긋난다.
 - **발화만 하고 결과를 아무도 안 봄.** §20의 리포팅이 없으면 조용히 실패한다.
 
 ---
@@ -199,7 +215,9 @@ if (await worktreeIsClean(dir)) {
 
 - **경로 탈출.** 툴이 `../../`로 다른 워크트리를 건드린다.
 - **stale 워크트리 재사용.** 중단된 실행의 잔재가 다음 실행에 섞인다.
-  → 생성 전에 강제 제거하는 게 안전하다.
+  → 생성 전에 정리하되 **강제 제거는 안 된다.** 중단된 실행이 커밋 안 된 작업을 남겼을 수 있고,
+  그건 위에서 "더러우면 남긴다"고 정한 바로 그 경우다. **깨끗할 때만 제거하고,
+  더러우면 멈춰서 사람에게 경로를 알려라.**
 - **깨끗한지 안 보고 지움.** 작업물 유실.
 - **같은 파일을 두 태스크가 건드림.** 격리는 되지만 병합에서 터진다 —
   **분해가 잘못된 신호다.**
@@ -308,7 +326,7 @@ AdaptOrch 같은 연구는 토폴로지를 작업 의존성 그래프에 따라 
 
 ### 점유(claim)는 원자적이어야 한다
 
-```
+```text
 ❌  if (task.owner == null) { task.owner = me; }   // 두 워커가 동시에 통과
 ✅  원자적 compare-and-swap 또는 파일 락
 ```
