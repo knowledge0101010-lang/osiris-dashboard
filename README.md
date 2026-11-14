@@ -40,6 +40,7 @@ Osiris is a production-grade OSINT platform that provides situational awareness 
 | **Crypto** | BTC + ETH Wallet Tracing, OFAC SDN Match | blockstream.info, Blockscout, OpenSanctions |
 | **Sanctions** | Person / Org / Vessel SDN Search | OpenSanctions (US OFAC SDN mirror) |
 | **Telegram OSINT** | Geoparsed Posts from Public Channels | `t.me/s/<channel>` web preview |
+| **Device Posture** | Patch Age, Boot Integrity, Root, Battery | Your own handset (offline, identifiers redacted) |
 
 ---
 
@@ -92,6 +93,7 @@ Osiris is a production-grade OSINT platform that provides situational awareness 
 - **Vulnerability Scanner** — CVE lookup against NVD database
 - **Crypto Wallet Trace** — BTC + ETH lookup (balance, tx history, OFAC SDN sanctions flag)
 - **OFAC Sanctions Search** — query persons, organizations, vessels and aircraft against the US OFAC SDN list
+- **My Device** — offline posture check on your own phone: paste an "About phone" screen or an `adb` dump and get patch-age, boot-integrity, root and battery findings ([docs](docs/DEVICE_INTEL.md))
 
 ### Live Broadcast Network
 - **25+ live 24/7 news streams** from global broadcasters

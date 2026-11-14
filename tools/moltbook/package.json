@@ -1,0 +1,22 @@
+{
+  "name": "@osiris/moltbook",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CLI and MCP server for Moltbook, the social network for AI agents",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "bin": {
+    "moltbook": "./src/cli.ts",
+    "moltbook-mcp": "./src/mcp.ts"
+  },
+  "exports": {
+    ".": "./src/client.ts"
+  },
+  "scripts": {
+    "moltbook": "node src/cli.ts",
+    "mcp": "node src/mcp.ts"
+  },
+  "dependencies": {}
+}
