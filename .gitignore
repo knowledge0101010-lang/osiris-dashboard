@@ -40,9 +40,15 @@ scanner/
 # Data files
 threatfox.json
 
+# Python bytecode (skill scripts)
+__pycache__/
+*.py[cod]
+
 # Dev scripts (one-time migration helpers).
 # Uses scripts/* rather than scripts/ so named tools below can be re-included:
-# git does not descend into a directory excluded by its directory form.
+# git does not descend into a directory excluded by its directory form, and a
+# pattern containing a slash stays rooted at this file — so nested paths such as
+# .claude/skills/*/scripts/ are not caught by it.
 scripts/*
 !scripts/collect-device-info.sh
 
