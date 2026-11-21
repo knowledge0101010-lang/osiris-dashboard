@@ -184,6 +184,16 @@ describe('redactIdentifiers', () => {
     expect(text).toContain('[15]');
     expect(found).toEqual([]);
   });
+
+  it('removes OEM serial and MEID properties by label', () => {
+    const { text, found } = redactIdentifiers(
+      ['[ro.ril.oem.sno]: [XK7823A9BRZ]', '[ro.ril.oem.meid]: [A1000053B2C4D1]', '[ro.ril.oem.imei1]: [356938035643809]'].join('\n'),
+    );
+    expect(text).not.toContain('XK7823A9BRZ');
+    expect(text).not.toContain('A1000053B2C4D1');
+    expect(text).not.toContain('356938035643809');
+    expect(found).toEqual(expect.arrayContaining(['Serial', 'IMEI/MEID']));
+  });
 });
 
 describe('parseDeviceInput', () => {
@@ -222,6 +232,29 @@ describe('parseDeviceInput', () => {
   it('records which identifier kinds it stripped', () => {
     const p = parseDeviceInput(`${CLEAN_GETPROP}\n[ro.serialno]: [R3CN90ABCDE]`);
     expect(p.redacted).toContain('Serial');
+  });
+
+  it('never leaks OEM serial or MEID properties through unmapped', () => {
+    const p = parseDeviceInput(
+      `${CLEAN_GETPROP}\n[ro.ril.oem.sno]: [XK7823A9BRZ]\n[ro.ril.oem.meid]: [A1000053B2C4D1]`,
+    );
+    expect(JSON.stringify(p)).not.toContain('XK7823A9BRZ');
+    expect(JSON.stringify(p)).not.toContain('A1000053B2C4D1');
+    expect(p.unmapped['ro.ril.oem.sno']).toBeUndefined();
+    expect(p.unmapped['ro.ril.oem.meid']).toBeUndefined();
+    expect(p.redacted).toEqual(expect.arrayContaining(['Serial', 'IMEI/MEID']));
+  });
+
+  it('scrubs an unmapped property whose value looks like an identifier', () => {
+    const p = parseDeviceInput(`${CLEAN_GETPROP}\n[ro.vendor.unknown.prop]: [356938035643809]`);
+    expect(p.unmapped['ro.vendor.unknown.prop']).toBe('REDACTED_IMEI_MEID');
+    expect(JSON.stringify(p)).not.toContain('356938035643809');
+    expect(p.redacted).toContain('IMEI/MEID');
+  });
+
+  it('keeps harmless unmapped properties readable', () => {
+    const p = parseDeviceInput(`${CLEAN_GETPROP}\n[ro.boot.hardware.sku]: [SM-S928NZKFEUC]`);
+    expect(p.unmapped['ro.boot.hardware.sku']).toBe('SM-S928NZKFEUC');
   });
 
   it('derives bootloader state from verifiedbootstate when flash.locked is absent', () => {

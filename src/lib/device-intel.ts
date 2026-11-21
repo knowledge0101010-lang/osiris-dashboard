@@ -120,14 +120,32 @@ const REDACTION_RULES: { kind: string; re: RegExp }[] = [
 
 /** Labels whose *value* is an identifier regardless of its shape. */
 const IDENTIFIER_LABELS: { kind: string; re: RegExp }[] = [
-  { kind: 'Serial', re: /^(?:ro\.(?:serialno|boot\.serialno)|serial(?:\s*(?:no|number))?|일련\s*번호|시리얼(?:\s*번호)?)$/i },
-  { kind: 'IMEI/MEID', re: /^(?:imei\s*\d?|meid|eid)$/i },
+  {
+    kind: 'Serial',
+    re: /^(?:ro\.(?:serialno|boot\.serialno|ril\.oem\.sno)|serial(?:\s*(?:no|number))?|일련\s*번호|시리얼(?:\s*번호)?)$/i,
+  },
+  {
+    kind: 'IMEI/MEID',
+    re: /^(?:imei\s*\d?|meid|eid|ro\.ril\.oem\.(?:imei\d?|meid|eid))$/i,
+  },
   { kind: 'SIM identifier', re: /^(?:iccid|imsi|sim\s*(?:일련\s*번호|serial))$/i },
   { kind: 'Phone number', re: /^(?:전화\s*번호|내\s*전화\s*번호|phone\s*number|msisdn)$/i },
   { kind: 'MAC', re: /^(?:(?:wi-?fi|와이파이|bluetooth|블루투스)\s*(?:mac\s*)?주소|(?:wi-?fi|bluetooth)\s*mac(?:\s*address)?)$/i },
   { kind: 'IP address', re: /^(?:ip\s*(?:주소|address)|ipv[46]\s*(?:주소|address))$/i },
   { kind: 'Account', re: /^(?:사용자\s*이름|계정|account|google\s*account)$/i },
 ];
+
+/** A value-shape rule with fresh regex state, so `/g` lastIndex never leaks. */
+function redactByShape(value: string, found: Set<string>): string {
+  let out = value;
+  for (const { kind, re } of REDACTION_RULES) {
+    const pattern = new RegExp(re.source, re.flags);
+    if (!pattern.test(out)) continue;
+    found.add(kind);
+    out = out.replace(pattern, () => `REDACTED_${kind.replace(/[^A-Z]/gi, '_').toUpperCase()}`);
+  }
+  return out;
+}
 
 /**
  * Strip anything that identifies the handset or its owner: first by label
@@ -163,6 +181,34 @@ export function redactIdentifiers(text: string): { text: string; found: string[]
   }
 
   return { text: out, found: [...found].sort() };
+}
+
+/**
+ * Defence in depth for `unmapped`.
+ *
+ * A `ro.*` property nobody has mapped yet is echoed back in the report, so an
+ * OEM-specific key carrying a serial number or MEID would otherwise travel to
+ * the API and the clipboard. Keys are matched against the label rules (the
+ * value is dropped entirely) and values against the shape rules (the value is
+ * replaced), so an identifier cannot leave through a property that is simply
+ * missing from the profile mapping.
+ */
+function scrubUnmapped(
+  props: Record<string, string>,
+  consumed: Set<string>,
+  found: Set<string>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(props)) {
+    if (consumed.has(key) || !key.startsWith('ro.')) continue;
+    const labelRule = IDENTIFIER_LABELS.find((r) => r.re.test(key));
+    if (labelRule) {
+      found.add(labelRule.kind);
+      continue;
+    }
+    out[key] = redactByShape(value, found);
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ *
@@ -344,6 +390,7 @@ function detectPlatform(props: Record<string, string>): 'android' | 'ios' | 'unk
  */
 export function parseDeviceInput(rawInput: string): DeviceProfile {
   const { text, found } = redactIdentifiers(rawInput);
+  const foundKinds = new Set(found);
 
   const props: Record<string, string> = {
     ...parseKeyValue(text),
@@ -378,10 +425,7 @@ export function parseDeviceInput(rawInput: string): DeviceProfile {
     'ios.version',
   ]);
 
-  const unmapped: Record<string, string> = {};
-  for (const [key, value] of Object.entries(props)) {
-    if (!consumed.has(key) && key.startsWith('ro.')) unmapped[key] = value;
-  }
+  const unmapped = scrubUnmapped(props, consumed, foundKinds);
 
   return {
     platform,
@@ -416,7 +460,7 @@ export function parseDeviceInput(rawInput: string): DeviceProfile {
     timezone: props['persist.sys.timezone'] ?? null,
     battery: batterySection,
     thirdPartyPackages: parsePackages(text),
-    redacted: found,
+    redacted: [...foundKinds].sort(),
     unmapped,
   };
 }

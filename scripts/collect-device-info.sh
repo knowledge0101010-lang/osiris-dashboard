@@ -82,7 +82,7 @@ collect() {
 # safe to share before it ever reaches the analyser.
 redact() {
   sed -E \
-    -e 's/^(\[?(ro\.serialno|ro\.boot\.serialno|ro\.ril\.oem\.imei[0-9]?|gsm\.sim\.operator\.iso-country)\]?):.*/\1: REDACTED/I' \
+    -e 's/^(\[?(ro\.serialno|ro\.boot\.serialno|ro\.ril\.oem\.(imei[0-9]?|meid|sno|eid)|gsm\.sim\.operator\.iso-country)\]?):.*/\1: REDACTED/I' \
     -e 's/\b89[0-9]{17,18}\b/REDACTED_ICCID/g' \
     -e 's/\b[0-9]{15,17}\b/REDACTED_IMEI/g' \
     -e 's/\b([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b/REDACTED_MAC/g' \

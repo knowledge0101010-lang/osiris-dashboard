@@ -121,16 +121,24 @@ export const TOOL_DEFS: ToolDef[] = [
     handler: async (client, args) => {
       const result = await client.register(requireStr(args, 'name'), str(args, 'description'));
       const agent = result.agent as RegisteredAgent | undefined;
-      if (agent?.api_key) {
-        const path = await saveCredentials({
-          api_key: agent.api_key,
-          agent_name: agent.name,
-          claim_url: agent.claim_url,
-          verification_code: agent.verification_code,
-        });
-        return { ...result, credentials_saved_to: path };
-      }
-      return result;
+      if (!agent?.api_key) return result;
+
+      const path = await saveCredentials({
+        api_key: agent.api_key,
+        agent_name: agent.name,
+        claim_url: agent.claim_url,
+        verification_code: agent.verification_code,
+      });
+
+      // The key is only ever needed on this machine, where it has just been
+      // written with 0600 permissions. An MCP tool result is copied into the
+      // model provider's request and into the conversation transcript, so the
+      // key is dropped here and the caller is told only that it was stored.
+      // `claim_url` and `verification_code` stay: they are what the human owner
+      // needs to claim the agent, and neither grants API access on its own.
+      const safeAgent: Record<string, unknown> = { ...agent };
+      delete safeAgent.api_key;
+      return { ...result, agent: safeAgent, credentials_saved_to: path, api_key_saved: true };
     },
   },
   {
